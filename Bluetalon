@@ -1,0 +1,564 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "AWS CloudFormation Template to create Bluetalon Compute Node",
+  "Parameters": {
+    "appName": {
+      "Type": "String",
+      "Default": "bluetalon_mgmt"
+    },
+    "RoleType": {
+      "Type": "String",
+      "Default": "app"
+    },
+    "business": {
+      "Type": "String",
+      "Default": "finance"
+    },
+    "technology": {
+      "Type": "String",
+      "Default": "bluetalon"
+    },
+    "appInstance": {
+      "Type": "String",
+      "Default": " "
+    },
+    "VpcId": {
+      "Type": "AWS::EC2::VPC::Id"
+    },
+    "Env": {
+      "Type": "String",
+      "Default": "dev",
+      "AllowedValues": [
+        "dev",
+        "prd"
+      ]
+    },
+    "uai": {
+      "Type": "String",
+      "Default": "uai2008359"
+    },
+    "AssetId": {
+      "Type": "String",
+      "Default": "1003894507"
+    },
+    "ValidatorKeyContent": {
+      "Type": "CommaDelimitedList",
+      "Description": "Required. Comma delimited list of values. One long line, no double-quotes or \\n",
+      "NoEcho": "true"
+    },
+    "SecurityGroup": {
+      "Type": "String",
+      "Default": "sg-b44bb6cb"
+    },
+    "ComputeSecurityGroup": {
+      "Type": "String",
+      "Default": "sg-b44bb6cb"
+    },
+    "ServerAMI": {
+      "Type": "String",
+      "Default": "ami-7e07dd03"
+    },
+    "EC2KeyPair": {
+      "Type": "AWS::EC2::KeyPair::KeyName"
+    },
+    "InstanceType": {
+      "Type": "String",
+      "Default": "m4.xlarge"
+    },
+    "InstanceProfile": {
+      "Type": "String",
+      "Default": "iam-role-bu-m1-bluetalon-app-InstanceProfile-1FBNOZXM1AXBK"
+    },
+    "Subnet": {
+      "Type": "AWS::EC2::Subnet::Id"
+    },
+    "varInstallAWSCLI": {
+      "Type": "String",
+      "AllowedValues": [
+        "yes",
+        "no"
+      ],
+      "Default": "yes",
+      "Description": "Should we install the AWS CLI on the VM? Typically you would want to answer yes if you specify an IAM profile policy."
+    },
+    "SnapshotId": {
+      "Type": "String",
+      "Default": "snap-0af58639f71d0b5e0"
+    },
+    "ChefOrgValidatorClientName": {
+      "Type": "String",
+      "Default": "datalake-validator"
+    },
+    "ValidatorKeyLoc": {
+      "Type": "String",
+      "Default": "/home/gecloud/datalake-validator.pem"
+    },
+    "ChefRoles": {
+      "Type": "String",
+      "Description": "Required. Comma delimited list of values. One long line, no double-quotes or \\n",
+      "Default": "role[base],role[linux_phase_2],role[gpsync],role[bluetalon_setupPolicy],role[end_run_list]"
+    },
+    "ChefServer": {
+      "Type": "String",
+      "Default": "https://pnw-chef.cas.cloud.ge.com/organizations/datalake"
+    },
+    "Sequence": {
+      "Type": "String",
+      "Default": ""
+    },
+    "Confidential": {
+      "Type": "String",
+      "Default": "yes",
+      "AllowedValues": [
+        "no",
+        "yes"
+      ]
+    }
+  },
+  "Resources": {
+    "ComputeNode": {
+      "Type": "AWS::EC2::Instance",
+      "CreationPolicy": {
+        "ResourceSignal": {
+          "Timeout": "PT60M",
+          "Count": "1"
+        }
+      },
+      "Metadata": {
+        "Comment": "Chef Registration",
+        "AWS::CloudFormation::Init": {
+          "configSets": {
+            "default": [
+              "createFiles",
+              "installAWSCLI",
+              "installjq",
+              "updateValidatorFile",
+              "updateClientRB",
+              "runChef",
+              "deleteChefKey"
+            ]
+          },
+          "createFiles": {
+            "files": {
+              "/home/gecloud/validator.pem": {
+                "content": {
+                  "Fn::Join": [
+                    "\n",
+                    {
+                      "Ref": "ValidatorKeyContent"
+                    }
+                  ]
+                },
+                "mode": "000640",
+                "owner": "root",
+                "group": "root"
+              },
+              "/etc/chef/client.rb": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "log_level    :info",
+                      "\n",
+                      "chef_server_url   \"",
+                      {
+                        "Ref": "ChefServer"
+                      },
+                      "\"",
+                      "\n",
+                      "validation_client_name    \"",
+                      {
+                        "Ref": "ChefOrgValidatorClientName"
+                      },
+                      "\"",
+                      "\n",
+                      "validation_key     \"",
+                      {
+                        "Ref": "ValidatorKeyLoc"
+                      },
+                      "\"",
+                      "\n",
+                      "ssl_verify_mode    :verify_none",
+                      "\n"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              },
+              "/usr/local/etc/cf_instance": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "source   :cloud_formation"
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              }
+            }
+          },
+          "installAWSCLI": {
+            "files": {
+              "/usr/local/bin/install-aws-cli.sh": {
+                "content": {
+                  "Fn::Join": [
+                    "\n",
+                    [
+                      "#!/bin/bash",
+                      "",
+                      "# script to install the AWS CLI",
+                      "",
+                      "[ 0 -ne $(id -u) ] && echo \"ERROR: $(date) - You must run this script as root\" && exit 1",
+                      "",
+                      "RUNIT=$1",
+                      "[ -z \"${RUNIT}\" ] && echo \"ERROR: $(date) - Must specify 'yes' or 'no' as 1st input parameter.\" && exit 1",
+                      "[ 'no' = \"${RUNIT}\" ] && echo \"INFO: $(date) - You specified 'no'. Exiting.\" && exit 0",
+                      "",
+                      "[ -x /usr/local/bin/aws ] && echo \"WARNING: $(date) - AWS CLI is already installed. Exiting.\" && exit 0",
+                      "",
+                      "echo \"INFO: $(date) - START\"",
+                      "echo \"INFO: $(date) - install unzip if needed ...\"",
+                      "[ ! -x /usr/bin/unzip ] && yum install unzip -y",
+                      "",
+                      "echo \"INFO: $(date) - create temp dir ...\"",
+                      "mkdir -p /tmp/cli-install",
+                      "cd /tmp/cli-install",
+                      "",
+                      "echo \"INFO: $(date) - download the bundle ...\"",
+                      "curl -s https://s3.amazonaws.com/aws-cli/awscli-bundle.zip -o awscli-bundle.zip",
+                      "echo \"INFO: $(date) - unzip ...\"",
+                      "unzip -q awscli-bundle.zip",
+                      "echo \"INFO: $(date) - install the bundle ...\"",
+                      "./awscli-bundle/install -i /usr/local/aws -b /usr/local/bin/aws",
+                      "",
+                      "# for some reason 'others' are not allowed to read the folder , so we explicitly 'fix' the permissions",
+                      "echo \"INFO: $(date) - explicitly set permissions on /usr/local/aws folder ...\"",
+                      "chmod -R o+r+X /usr/local/aws",
+                      "",
+                      "echo \"INFO: $(date) - set the PATH to include the /usr/local/bin folder in .bashrc for users gecloud & appadmin ...\"",
+                      "[ -d /home/gecloud  ] && (echo 'export PATH=$PATH:/usr/local/bin' >> /home/gecloud/.bashrc)",
+                      "[ -d /home/appadmin ] && (echo 'export PATH=$PATH:/usr/local/bin' >> /home/appadmin/.bashrc)",
+                      "",
+                      "echo \"INFO: $(date) - clean up ...\"",
+                      "cd /; rm -rf /tmp/cli-install",
+                      "echo \"INFO: $(date) - DONE\""
+                    ]
+                  ]
+                },
+                "mode": "000755",
+                "owner": "root",
+                "group": "root"
+              }
+            },
+            "commands": {
+              "install": {
+                "command": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "/usr/local/bin/install-aws-cli.sh ",
+                      {
+                        "Ref": "varInstallAWSCLI"
+                      },
+                      " >> /var/log/cfn-bootstrap-install-aws-cli.log 2>&1"
+                    ]
+                  ]
+                },
+                "ignoreErrors": "false"
+              }
+            }
+          },
+          "installjq": {
+            "commands": {
+              "installjq": {
+                "command": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "yum install ",
+                      "jq -y"
+                    ]
+                  ]
+                }
+              }
+            }
+          },
+          "updateValidatorFile": {
+            "commands": {
+              "upd": {
+                "command": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "mv /home/gecloud/validator.pem ",
+                      {
+                        "Ref": "ValidatorKeyLoc"
+                      }
+                    ]
+                  ]
+                }
+              }
+            }
+          },
+          "updateClientRB": {
+            "commands": {
+              "ip": {
+                "command": "ip=`curl http://169.254.169.254/latest/meta-data/local-ipv4`; echo \"node_name \\\"ip-${ip}\\\"\" >> /etc/chef/client.rb"
+              }
+            }
+          },
+          "runChef": {
+            "commands": {
+              "chef": {
+                "command": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "chef-client -E ",
+                      {
+                        "Ref": "Env"
+                      },
+                      " -r ",
+                      {
+                        "Ref": "ChefRoles"
+                      },
+                      " -L /var/log/chef-client.log"
+                    ]
+                  ]
+                }
+              }
+            }
+          },
+          "deleteChefKey": {
+            "commands": {
+              "last": {
+                "command": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "rm -rf ",
+                      {
+                        "Ref": "ValidatorKeyLoc"
+                      }
+                    ]
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/sdh",
+            "Ebs": {
+              "SnapshotId": "snap-0ebcc9d2aad5eccf2",
+              "VolumeSize": 100,
+              "VolumeType": "gp2"
+            }
+          }
+        ],
+        "KeyName": {
+          "Ref": "EC2KeyPair"
+        },
+        "IamInstanceProfile": {
+          "Ref": "InstanceProfile"
+        },
+        "SubnetId": {
+          "Ref": "Subnet"
+        },
+        "Tenancy": "dedicated",
+        "SecurityGroupIds": [
+          {
+            "Ref": "SecurityGroup"
+          },
+          {
+            "Ref": "ComputeSecurityGroup"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Join": [
+                "-",
+                [
+                  {
+                    "Ref": "Env"
+                  },
+                  {
+                    "Ref": "appInstance"
+                  },
+                  {
+                    "Ref": "Sequence"
+                  },
+                  {
+                    "Ref": "RoleType"
+                  }
+                ]
+              ]
+            }
+          },
+          {
+            "Key": "app",
+            "Value": {
+              "Ref": "appName"
+            }
+          },
+          {
+            "Key": "Component",
+            "Value": "CloudViewDashBoard"
+          },
+          {
+            "Key": "uai",
+            "Value": {
+              "Ref": "uai"
+            }
+          },
+          {
+            "Key": "assetid",
+            "Value": {
+              "Ref": "AssetId"
+            }
+          },
+          {
+            "Key": "business",
+            "Value": {
+              "Ref": "business"
+            }
+          },
+          {
+            "Key": "technology",
+            "Value": {
+              "Ref": "technology"
+            }
+          },
+          {
+            "Key": "env",
+            "Value": {
+              "Ref": "Env"
+            }
+          },
+          {
+            "Key": "role",
+            "Value": {
+              "Ref": "RoleType"
+            }
+          }
+        ],
+        "ImageId": {
+          "Ref": "ServerAMI"
+        },
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -v\n",
+                "easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz\n",
+                "/usr/bin/cfn-init",
+                " --stack ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                " --resource ComputeNode ",
+                " --configsets default",
+                " --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n",
+                "/usr/bin/cfn-signal -e $?",
+                " --stack ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                " --resource ComputeNode --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n",
+                "Name=",
+                {
+                  "Fn::Join": [
+                    "-",
+                    [
+                      {
+                        "Ref": "Env"
+                      },
+                      {
+                        "Ref": "appInstance"
+                      },
+                      {
+                        "Ref": "Sequence"
+                      },
+                      {
+                        "Ref": "RoleType"
+                      }
+                    ]
+                  ]
+                },
+                "\n",
+                "app=",
+                {
+                  "Ref": "appName"
+                },
+                "\n",
+                "awsregion=",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n",
+                "appInstance=",
+                {
+                  "Ref": "appInstance"
+                },
+                "\n",
+                "assetid=",
+                {
+                  "Ref": "AssetId"
+                },
+                "\n",
+                "UAI=",
+                {
+                  "Ref": "uai"
+                },
+                "\n",
+                "role=",
+                {
+                  "Ref": "RoleType"
+                },
+                "\n",
+                "env=",
+                {
+                  "Ref": "Env"
+                },
+                "\n"
+              ]
+            ]
+          }
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ComputeNodePrivateIp": {
+      "Description": "Private Ip Address",
+      "Value": {
+        "Fn::GetAtt": [
+          "ComputeNode",
+          "PrivateIp"
+        ]
+      }
+    }
+  }
+}
